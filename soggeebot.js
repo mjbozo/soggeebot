@@ -19,7 +19,7 @@ const commands = {};
 export const logLevel = LogLevels.DEBUG;
 
 
-var first;
+var first = new Set();
 var forceNewAccessToken = false;
 
 for (let arg of process.argv) {
@@ -84,12 +84,11 @@ function registerCommands() {
     }
 
     commands["!first"] = function(data) {
-        if (!first) {
-            first = data.payload.event.chatter_user_name;
-            sendChatMessage(`gg @${first} wins`);
-        } else if (data.payload.event.chatter_user_name == first) {
-            sendChatMessage(`chill ${first}, you already won`);
-        } else {
+        if (first.size == 0) {
+            first.add(data.payload.event.chatter_user_name);
+            sendChatMessage(`gg @${data.payload.event.chatter_user_name} wins`);
+        } else if (!first.has(data.payload.event.chatter_user_name)) {
+            first.add(data.payload.event.chatter_user_name);
             sendChatMessage(`Too slow ${data.payload.event.chatter_user_name}!`);
         }
     }
