@@ -1,4 +1,5 @@
-// logs
+// log.js
+// custom logging to terminal
 
 import { logLevel } from "./soggeebot.js";
 

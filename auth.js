@@ -1,6 +1,7 @@
-// auth
+// auth.js
+// token handling via OAuth2
 
-import { debug, info, log, warn, error } from "./log.js";
+import { info, error } from "./log.js";
 import { sendTwitchAPIRequest, soggeebotClientId } from "./soggeebot.js";
 
 const soggeebotAuthCode = process.env.SOGGEEBOT_AUTHCODE;
@@ -42,8 +43,8 @@ export async function secureToken() {
     soggeebotOAuthAccessToken = data["access_token"];
     soggeebotOAuthRefreshToken = data["refresh_token"];
 
-    console.log("AccessToken: " + soggeebotOAuthAccessToken);
-    console.log("RefreshToken: " + soggeebotOAuthRefreshToken);
+    //console.log("AccessToken: " + soggeebotOAuthAccessToken);
+    //console.log("RefreshToken: " + soggeebotOAuthRefreshToken);
 }
 
 export async function validateToken() {

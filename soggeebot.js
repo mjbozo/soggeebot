@@ -1,8 +1,10 @@
-// soggeebot
+// soggeebot.js
+// bot entry point and setup
 
-import { debug, info, log, warn, error, LogLevels } from "./log.js";
+import { info, log, error, LogLevels } from "./log.js";
 import { secureToken, validateToken, attemptRefreshToken, accessToken } from "./auth.js";
 import { subscribeToChannelFollow, subscribeToChatMessage, subscribeToChannelOnline, subscribeToChannelRaid } from "./eventSubs.js";
+import { registerCommands, executeCommand, commands } from "./commands.js";
 
 export const soggeeboiUserId = process.env.SOGGEEBOI_USERID;
 export const soggeebotUserId = process.env.SOGGEEBOT_USERID;
@@ -12,14 +14,14 @@ const eventsubWSUrl = "wss://eventsub.wss.twitch.tv/ws";
 const twitchChatUrl = "https://api.twitch.tv/helix/chat/messages";
 const twitchChannelInfoUrl = "https://api.twitch.tv/helix/channels";
 const twitchShoutoutUrl = "https://api.twitch.tv/helix/chat/shoutouts";
+const twitchChatColorUrl = "https://api.twitch.tv/helix/chat/color";
 
-export var websocketSessionId;
-const commands = {};
-
+export const BROADCASTER = "broadcaster"
 export const logLevel = LogLevels.DEBUG;
 
+export var greeted = new Set();
+export var websocketSessionId;
 
-var first = new Set();
 var forceNewAccessToken = false;
 
 for (let arg of process.argv) {
@@ -27,6 +29,7 @@ for (let arg of process.argv) {
         forceNewAccessToken = true;
     }
 }
+
 
 // run soggeebot
 start();
@@ -40,8 +43,10 @@ async function start() {
     }
 
     await validateToken();
+    await setChatColour();
     startWebSocketClient();
 }
+
 
 function startWebSocketClient() {
     registerCommands();
@@ -63,35 +68,11 @@ function startWebSocketClient() {
     return wsClient;
 }
 
-async function registerEventsubListeners() {
+function registerEventsubListeners() {
     subscribeToChatMessage();
     subscribeToChannelFollow();
     subscribeToChannelOnline();
     subscribeToChannelRaid();
-}
-
-function registerCommands() {
-    commands["!vibecheck"] = function(data) {
-        const soggeeFactor = Math.round((Math.random() * 100));
-        var suffix = "";
-        if (soggeeFactor < 10) {
-            suffix = ". yikes."
-        }
-        if (soggeeFactor > 90) {
-            suffix = ". DinoDance DinoDance"
-        }
-        sendChatMessage(`${data.payload.event.chatter_user_login} is ${soggeeFactor}% soggy${suffix}`)
-    }
-
-    commands["!first"] = function(data) {
-        if (first.size == 0) {
-            first.add(data.payload.event.chatter_user_name);
-            sendChatMessage(`gg @${data.payload.event.chatter_user_name} wins`);
-        } else if (!first.has(data.payload.event.chatter_user_name)) {
-            first.add(data.payload.event.chatter_user_name);
-            sendChatMessage(`Too slow ${data.payload.event.chatter_user_name}!`);
-        }
-    }
 }
 
 function handleMessage(data) {
@@ -111,28 +92,11 @@ function handleMessage(data) {
                         sendChatMessage("DinoDance");
                     }
 
-                    if (data.payload.event.message.text.startsWith("!") &&
-                        data.payload.event.message.text in commands) {
-                        commands[data.payload.event.message.text.trim()](data);
-                    }
-
-                    // TODO: Remove this block after testing
-                    if (data.payload.event.message.text == "testOnline") {
-                        log(`ONLINE <${data.payload.event.broadcaster_user_name}> is now live`);
-                        getStreamInfo(soggeeboiUserId).then(async (streamData) => {
-                            await sendChatMessage(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
-                            sendChatMessage("Welcome to the stream, we will get to the good stuff shortly DinoDance");
-                        }).catch(error);
-                    }
-
-                    if (data.payload.event.message.text == "testRaid") {
-                        log(`RAID <${data.payload.event.from_broadcaster_user_name}> raided`);
-                        getStreamInfo(data.payload.event.from_broadcaster_user_id ?? 12826).then(async (streamData) => {
-                            sendShoutout(data.payload.event.from_broadcaster_user_id ?? 12826).then(async () => {
-                                await sendChatMessage(`It just got a whole lot soggier in here, welcome raiders! PogChamp PogChamp`);
-                                sendChatMessage(`${streamData.name} just raided with ${data.payload.event.viewers ?? 69} absolute legends. They were streaming ${streamData.category}`);
-                            }).catch(e => error(e.message));
-                        }).catch(error);
+                    if (data.payload.event.message.text.startsWith("!")) {
+                        let msgSegments = data.payload.event.message.text.trim().split(" ");
+                        if (msgSegments[0] in commands) {
+                            executeCommand(commands[msgSegments[0]], data);
+                        }
                     }
 
                     break;
@@ -144,6 +108,7 @@ function handleMessage(data) {
 
                 case "stream.online":
                     log(`ONLINE <${data.payload.event.broadcaster_user_name}> is now live`);
+                    greeted = new Set();
                     getStreamInfo(soggeeboiUserId).then(async (streamData) => {
                         await sendChatMessage(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
                         sendChatMessage("Welcome to the stream, we will get to the good stuff shortly DinoDance");
@@ -151,7 +116,7 @@ function handleMessage(data) {
                     break;
 
                 case "channel.raid":
-                    log(`RAID <${data.payload.event.from_broadcaster_user_name}> raided`);
+                    log(`RAID <${data.payload.event.from_broadcaster_user_name}> raided with ${data.payload.event.viewers ?? 0} viewers`);
                     getStreamInfo(data.payload.event.from_broadcaster_user_id).then(async (streamData) => {
                         sendShoutout(data.payload.event.from_broadcaster_id).then(async () => {
                             await sendChatMessage(`It just got a whole lot soggier in here, welcome raiders! PogChamp PogChamp`);
@@ -163,11 +128,11 @@ function handleMessage(data) {
     }
 }
 
-async function sendChatMessage(chatMessage) {
+export async function sendChatMessage(chatMessage) {
     let response = await sendTwitchAPIRequest(twitchChatUrl, {
         method: "POST",
         headers: {
-            "Authorization": "Bearer " + accessToken(),
+            "Authorization": `Bearer ${accessToken()}`,
             "Client-Id": soggeebotClientId,
             "Content-Type": "application/json"
         },
@@ -182,7 +147,7 @@ async function sendChatMessage(chatMessage) {
         let data = await response.json();
         error("Failed to send chat message");
         error(data.message);
-        return
+        return;
     }
 
     info("Successfully send chat message: " + chatMessage);
@@ -210,7 +175,7 @@ async function getStreamInfo(userId) {
     let response = await fetch(twitchChannelInfoUrl + "?broadcaster_id=" + userId, {
         method: "GET",
         headers: {
-            "Authorization": "Bearer " + accessToken(),
+            "Authorization": `Bearer ${accessToken()}`,
             "Client-Id": soggeebotClientId
         }
     });
@@ -230,11 +195,11 @@ async function getStreamInfo(userId) {
     return streamData;
 }
 
-async function sendShoutout(userId) {
+export async function sendShoutout(userId) {
     let response = await fetch(`${twitchShoutoutUrl}?from_broadcaster_id=${soggeeboiUserId}&to_broadcaster_id=${userId}&moderator_id=${soggeebotUserId}`, {
         method: "POST",
         headers: {
-            "Authorization": "Bearer " + accessToken(),
+            "Authorization": `Bearer ${accessToken()}`,
             "Client-Id": soggeebotClientId
         }
     });
@@ -242,6 +207,39 @@ async function sendShoutout(userId) {
     if (response.status != 204) {
         let data = await response.json();
         const errMsg = "Failed to give shoutout. API call received status code " + response.status + ". Error: " + data.message;
-        throw new Error(errMsg);
+        error(errMsg);
     }
+}
+
+export function hasBadge(badges, badgeToCheck) {
+    for (let badge of badges) {
+        if (badge.set_id === badgeToCheck || badge.set_id == BROADCASTER) {
+            return true;
+        }
+    }
+    return false;
+}
+
+async function setChatColour() {
+    let response = await sendTwitchAPIRequest(twitchChatColorUrl, {
+        method: "PUT",
+        body: JSON.stringify({
+            user_id: soggeebotUserId,
+            color: "blue_violet"
+        }),
+        headers: {
+            "Authorization": `Bearer ${accessToken()}`,
+            "Client-Id": soggeebotClientId,
+            "Content-Type": "application/json"
+        }
+    });
+
+    if (response.status != 204) {
+        let data = await response.json();
+        error("Failed to set chat colour");
+        error(data.message);
+        return;
+    }
+
+    info("Successfully updated chat colour");
 }

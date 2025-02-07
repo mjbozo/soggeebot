@@ -1,7 +1,8 @@
-// event subs
+// eventSubs.js
+// requests to subscribe to Twitch's event sub
 
 import { accessToken } from "./auth.js";
-import { debug, info, log, warn, error } from "./log.js";
+import { log, warn, error } from "./log.js";
 import { sendTwitchAPIRequest, soggeebotClientId, soggeeboiUserId, soggeebotUserId, websocketSessionId } from "./soggeebot.js";
 
 const twitchEventsubUrl = "https://api.twitch.tv/helix/eventsub/subscriptions"
@@ -10,7 +11,7 @@ async function sendSubscribeRequest(body) {
     let response = await sendTwitchAPIRequest(twitchEventsubUrl, {
         method: "POST",
         headers: {
-            "Authorization": "Bearer " + accessToken(),
+            "Authorization": `Bearer ${accessToken()}`,
             "Client-Id": soggeebotClientId,
             "Content-Type": "application/json"
         },
