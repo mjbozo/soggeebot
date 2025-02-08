@@ -62,3 +62,7 @@ export function error(message) {
         console.log(`${RED}${timestamp()} ERROR > ${message}${DEFAULT}`);
     }
 }
+
+export function success(message) {
+    console.log(`${GREEN}${timestamp()} OK    > ${message}${DEFAULT}`);
+}
