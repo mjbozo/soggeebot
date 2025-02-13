@@ -1,26 +1,42 @@
 // soggeebot.js
 // bot entry point and setup
 
-import { info, log, error, LogLevels } from "./log.js";
 import { secureToken, validateToken, attemptRefreshToken, accessToken } from "./auth.js";
-import { subscribeToChannelFollow, subscribeToChatMessage, subscribeToChannelOnline, subscribeToChannelRaid } from "./eventSubs.js";
-import { registerCommands, executeCommand, commands } from "./commands.js";
-
-export const soggeeboiUserId = process.env.SOGGEEBOI_USERID;
-export const soggeebotUserId = process.env.SOGGEEBOT_USERID;
-export const soggeebotClientId = process.env.SOGGEEBOT_CLIENTID;
-
-const eventsubWSUrl = "wss://eventsub.wss.twitch.tv/ws";
-const twitchChatUrl = "https://api.twitch.tv/helix/chat/messages";
-const twitchChannelInfoUrl = "https://api.twitch.tv/helix/channels";
-const twitchShoutoutUrl = "https://api.twitch.tv/helix/chat/shoutouts";
-const twitchChatColorUrl = "https://api.twitch.tv/helix/chat/color";
-
-export const BROADCASTER = "broadcaster"
-export const logLevel = LogLevels.DEBUG;
+import { registerCommands, executeCommand } from "./commands.js";
+import {
+    BROADCASTER,
+    TIMEOUT_THRESHOLD,
+    TIMEOUT_RESET,
+    eventsubWSUrl,
+    soggeeboiUserId,
+    soggeebotClientId,
+    soggeebotUserId,
+    twitchChatColorUrl,
+    twitchChatUrl,
+    twitchShoutoutUrl,
+    twitchChannelInfoUrl,
+    twitchBanUserUrl
+} from "./constants.js";
+import {
+    subscribeToChannelFollow,
+    subscribeToChatMessage,
+    subscribeToChannelOnline,
+    subscribeToChannelRaid
+} from "./eventSubs.js";
+import { info, log, error } from "./log.js";
 
 export var greeted = new Set();
 export var websocketSessionId;
+
+var userMsgs = {};
+
+var timedMsgs = {
+    "follow_pls": {
+        lastSentTime: Date.now(),
+        msg: "Make sure to drop a follow if you're enjoying the stream!",
+        waitTime: 1200000
+    }
+}
 
 var forceNewAccessToken = false;
 
@@ -41,6 +57,10 @@ async function start() {
     } else {
         await attemptRefreshToken();
     }
+
+    setInterval(() => {
+        userMsgs = {};
+    }, TIMEOUT_RESET);
 
     await validateToken();
     await setChatColour();
@@ -87,6 +107,13 @@ function handleMessage(data) {
                 case "channel.chat.message":
                     log(`MSG <${data.payload.event.chatter_user_login}>: ${data.payload.event.message.text}`);
 
+                    sendTimedMessages();
+
+                    userMsgs[data.payload.event.chatter_user_id] = (userMsgs[data.payload.event.chatter_user_id] ?? 0) + 1;
+                    if (userMsgs[data.payload.event.chatter_user_id] > TIMEOUT_THRESHOLD) {
+                        timeoutUser(data.payload.event.chatter_user_id);
+                    }
+
                     if (data.payload.event.message.text.trim().includes("soggee") &&
                         data.payload.event.chatter_user_login != "soggeebot") {
                         sendChatMessage("DinoDance");
@@ -94,9 +121,7 @@ function handleMessage(data) {
 
                     if (data.payload.event.message.text.startsWith("!")) {
                         let msgSegments = data.payload.event.message.text.trim().split(" ");
-                        if (msgSegments[0] in commands) {
-                            executeCommand(commands[msgSegments[0]], data);
-                        }
+                        executeCommand(msgSegments[0], data);
                     }
 
                     break;
@@ -110,8 +135,10 @@ function handleMessage(data) {
                     log(`ONLINE <${data.payload.event.broadcaster_user_name}> is now live`);
                     greeted = new Set();
                     getStreamInfo(soggeeboiUserId).then(async (streamData) => {
-                        await sendChatMessage(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
-                        sendChatMessage("Welcome to the stream, we will get to the good stuff shortly DinoDance");
+                        setTimeout(async () => {
+                            await sendChatMessage(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
+                            sendChatMessage("Welcome to the stream, we will get to the good stuff shortly DinoDance");
+                        }, 10000);
                     }).catch(error);
                     break;
 
@@ -211,6 +238,33 @@ export async function sendShoutout(userId) {
     }
 }
 
+async function timeoutUser(userId) {
+    let response = await sendTwitchAPIRequest(`${twitchBanUserUrl}?broadcaster_id=${soggeeboiUserId}&moderator_id=${soggeebotUserId}`, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${accessToken()}`,
+            "Client-Id": soggeebotClientId,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            data: {
+                user_id: userId,
+                duration: 60,
+                reason: "spam"
+            }
+        })
+    });
+
+    if (response.status != 200) {
+        let data = await response.json();
+        error("Failed to timeout user");
+        error(data.message);
+        return;
+    }
+
+    info("User timed out");
+}
+
 export function hasBadge(badges, badgeToCheck) {
     for (let badge of badges) {
         if (badge.set_id === badgeToCheck || badge.set_id == BROADCASTER) {
@@ -242,4 +296,15 @@ async function setChatColour() {
     }
 
     info("Successfully updated chat colour");
+}
+
+function sendTimedMessages() {
+    const now = Date.now();
+    for (const [_, value] of Object.entries(timedMsgs)) {
+        if (value.lastSentTime + value.waitTime < now) {
+            value.lastSentTime = now;
+            sendChatMessage(value.msg);
+            break;
+        }
+    }
 }

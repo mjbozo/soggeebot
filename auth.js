@@ -1,17 +1,15 @@
 // auth.js
 // token handling via OAuth2
 
+import { soggeebotClientId, twitchOAuthUrl, twitchTokenUrl } from "./constants.js";
 import { info, error } from "./log.js";
-import { sendTwitchAPIRequest, soggeebotClientId } from "./soggeebot.js";
+import { sendTwitchAPIRequest } from "./soggeebot.js";
 
 const soggeebotAuthCode = process.env.SOGGEEBOT_AUTHCODE;
 const soggeebotClientSecret = process.env.SOGGEEBOT_CLIENTSECRET;
 
 var soggeebotOAuthAccessToken = process.env.SOGGEEBOT_OAUTHTOKEN;
 var soggeebotOAuthRefreshToken = process.env.SOGGEEBOT_REFRESHTOKEN;
-
-const twitchTokenUrl = "https://id.twitch.tv/oauth2/token";
-const twitchOAuthUrl = "https://id.twitch.tv/oauth2/validate";
 
 export function accessToken() {
     return soggeebotOAuthAccessToken;

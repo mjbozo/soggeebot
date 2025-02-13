@@ -1,8 +1,6 @@
 // log.js
 // custom logging to terminal
 
-import { logLevel } from "./soggeebot.js";
-
 const DEFAULT = "\u001b[39m"
 const RED = "\u001b[91m"
 const YELLOW = "\u001b[93m"
@@ -17,6 +15,8 @@ export const LogLevels = {
     WARN: 3,
     ERROR: 4
 };
+
+export const logLevel = LogLevels.DEBUG;
 
 function timestamp() {
     const now = new Date();

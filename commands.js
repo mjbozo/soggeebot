@@ -2,18 +2,13 @@
 // manage all commands
 
 import { accessToken } from "./auth.js";
-import { BROADCASTER, hasBadge, sendChatMessage, sendShoutout, sendTwitchAPIRequest, soggeebotClientId, greeted } from "./soggeebot.js";
+import { ALL, BROADCASTER, CUSTOM, MOD, SIMPLE, soggeebotClientId, twitchGetUsersUrl } from "./constants.js";
+import { hasBadge, sendChatMessage, sendShoutout, sendTwitchAPIRequest, greeted } from "./soggeebot.js";
 
-const SIMPLE = "simple";
-const CUSTOM = "custom";
-const ALL = "all";
-const MOD = "moderator";
-
-const twitchGetUsersUrl = "https://api.twitch.tv/helix/users";
-
-export const commands = {};
+const commands = {};
 const simpleCommands = {
-    "!today": "I'm building my twitch chat bot, soggeebot!"
+    "!today": "I'm working on my twitch chat bot, soggeebot! 🤖",
+    "!code": "Check out the repo here -> https://github.com/mjbozo/soggeebot"
 };
 
 export function registerCommands() {
@@ -23,6 +18,12 @@ export function registerCommands() {
         cooldown: 2000,
         lastUsedGlobal: Date.now()
     };
+
+    commands["!code"] = {
+        type: SIMPLE,
+        allowed: ALL,
+        cooldown: 0,
+    }
 
     commands["!vibecheck"] = {
         type: CUSTOM,
@@ -65,6 +66,11 @@ export function registerCommands() {
             }
 
             const cmdToAdd = msgSegments[1];
+            if (!cmdToAdd.startsWith("!")) {
+                sendChatMessage(`Error: u dumb`);
+                return;
+            }
+
             if (cmdToAdd in commands) {
                 sendChatMessage(`Command ${cmdToAdd} already exists, dummy`);
                 return;
@@ -77,7 +83,7 @@ export function registerCommands() {
 
             const newResponse = msgSegments.slice(2, msgSegments.length).join(" ");
             simpleCommands[cmdToAdd] = newResponse;
-            sendChatMessage(`Command ${cmdToEdit} added`);
+            sendChatMessage(`Command ${cmdToAdd} added`);
         }
     };
 
@@ -93,6 +99,11 @@ export function registerCommands() {
             }
 
             const cmdToEdit = msgSegments[1];
+            if (!cmdToEdit.startsWith("!")) {
+                sendChatMessage(`Error: u dumb`);
+                return;
+            }
+
             if (!(cmdToEdit in commands)) {
                 sendChatMessage(`Command ${cmdToEdit} does not exist, dummy`);
                 return;
@@ -120,6 +131,11 @@ export function registerCommands() {
             }
 
             const cmdToDelete = msgSegments[1];
+            if (!cmdToDelete.startsWith("!")) {
+                sendChatMessage(`Error: u dumb`);
+                return;
+            }
+
             if (!(cmdToDelete in commands)) {
                 sendChatMessage(`Command ${cmdToDelete} does not exists, dummy`);
                 return;
@@ -170,7 +186,13 @@ export function registerCommands() {
     }
 }
 
-export function executeCommand(command, data) {
+export function executeCommand(commandName, data) {
+    if (!(commandName in commands)) {
+        sendChatMessage(`fuckwit is making up commands smh`);
+        return;
+    }
+
+    const command = commands[commandName];
     const userId = data.payload.event.chatter_user_id;
     const now = Date.now();
     const globalCooldownPassed = command.lastUsedGlobal && command.lastUsedGlobal + command.cooldown <= now;
@@ -194,7 +216,6 @@ export function executeCommand(command, data) {
             break;
     }
 
-    let commandName = data.payload.event.message.text.trim().split(" ")[0];
     switch (command.type) {
         case SIMPLE:
             sendChatMessage(simpleCommands[commandName]);
