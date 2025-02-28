@@ -2,27 +2,26 @@
 // manage all commands
 
 import { accessToken } from "./auth.js";
-import { ALL, BROADCASTER, CUSTOM, MOD, SIMPLE, soggeebotClientId, twitchGetUsersUrl } from "./constants.js";
-import { hasBadge, sendChatMessage, sendShoutout, sendTwitchAPIRequest, greeted } from "./soggeebot.js";
+import { ALL, BROADCASTER, CUSTOM, DEFAULT_COOLDOWN, MOD, SIMPLE, soggeebotClientId, twitchGetUsersUrl } from "./constants.js";
+import { sendAnnouncement, hasBadge, sendChatMessage, sendShoutout, sendTwitchAPIRequest, greeted, sendChatReply } from "./soggeebot.js";
 
 const commands = {};
-const simpleCommands = {
-    "!today": "I'm working on my twitch chat bot, soggeebot! 🤖",
-    "!code": "Check out the repo here -> https://github.com/mjbozo/soggeebot"
-};
 
 export function registerCommands() {
     commands["!today"] = {
         type: SIMPLE,
         allowed: ALL,
-        cooldown: 2000,
-        lastUsedGlobal: Date.now()
+        cooldown: DEFAULT_COOLDOWN,
+        lastUsedGlobal: Date.now(),
+        msg: "I'm working on my twitch chat bot, soggeebot! 🤖"
     };
 
     commands["!code"] = {
         type: SIMPLE,
         allowed: ALL,
-        cooldown: 0,
+        cooldown: DEFAULT_COOLDOWN,
+        lastUsedGlobal: Date.now(),
+        msg: "Check out the repo here -> https://github.com/mjbozo/soggeebot"
     }
 
     commands["!vibecheck"] = {
@@ -67,23 +66,23 @@ export function registerCommands() {
 
             const cmdToAdd = msgSegments[1];
             if (!cmdToAdd.startsWith("!")) {
-                sendChatMessage(`Error: u dumb`);
+                sendChatReply(data.payload.event.message_id, "u dumb");
                 return;
             }
 
             if (cmdToAdd in commands) {
-                sendChatMessage(`Command ${cmdToAdd} already exists, dummy`);
+                sendChatReply(data.payload.event.message_id, `Command ${cmdToAdd} already exists, dummy`);
                 return;
             }
 
+            const newResponse = msgSegments.slice(2, msgSegments.length).join(" ");
             commands[cmdToAdd] = {
                 type: SIMPLE,
-                allowed: ALL
+                allowed: ALL,
+                msg: newResponse
             };
 
-            const newResponse = msgSegments.slice(2, msgSegments.length).join(" ");
-            simpleCommands[cmdToAdd] = newResponse;
-            sendChatMessage(`Command ${cmdToAdd} added`);
+            sendChatReply(data.payload.event.message_id, `Command ${cmdToAdd} added`);
         }
     };
 
@@ -92,7 +91,6 @@ export function registerCommands() {
         allowed: MOD,
         cooldown: 0,
         f: function(data) {
-            // !editcmd <cmd> <response>
             let msgSegments = data.payload.event.message.text.trim().split(" ");
             if (msgSegments.length < 3) {
                 return;
@@ -100,23 +98,23 @@ export function registerCommands() {
 
             const cmdToEdit = msgSegments[1];
             if (!cmdToEdit.startsWith("!")) {
-                sendChatMessage(`Error: u dumb`);
+                sendChatReply(data.payload.event.message_id, "u dumb");
                 return;
             }
 
             if (!(cmdToEdit in commands)) {
-                sendChatMessage(`Command ${cmdToEdit} does not exist, dummy`);
+                sendChatReply(data.payload.event.message_id, `Command ${cmdToEdit} does not exist, dummy`);
                 return;
             }
 
             if (commands[cmdToEdit].type != SIMPLE) {
-                sendChatMessage("Can only edit simple commands, dummy");
+                sendChatReply(data.payload.event.message_id, "Can only edit simple commands, dummy");
                 return;
             }
 
             const newResponse = msgSegments.slice(2, msgSegments.length).join(" ");
-            simpleCommands[cmdToEdit] = newResponse;
-            sendChatMessage(`Command ${cmdToEdit} updated successfully`);
+            commands[cmdToEdit].msg = newResponse;
+            sendChatReply(data.payload.event.message_id, `Command ${cmdToEdit} updated successfully`);
         }
     };
 
@@ -132,23 +130,22 @@ export function registerCommands() {
 
             const cmdToDelete = msgSegments[1];
             if (!cmdToDelete.startsWith("!")) {
-                sendChatMessage(`Error: u dumb`);
+                sendChatReply(data.payload.event.message_id, "u dumb");
                 return;
             }
 
             if (!(cmdToDelete in commands)) {
-                sendChatMessage(`Command ${cmdToDelete} does not exists, dummy`);
+                sendChatReply(data.payload.event.message_id, `Command ${cmdToDelete} does not exists, dummy`);
                 return;
             }
 
             if (commands[cmdToDelete].type != SIMPLE) {
-                sendChatMessage("Can only remove simple commands, dummy");
+                sendChatReply(data.payload.event.message_id, "Can only remove simple commands, dummy");
                 return;
             }
 
             delete commands[cmdToDelete];
-            delete simpleCommands[cmdToDelete];
-            sendChatMessage(`Command ${cmdToDelete} deleted`);
+            sendChatReply(data.payload.event.message_id, `Command ${cmdToDelete} deleted`);
         }
     }
 
@@ -184,11 +181,23 @@ export function registerCommands() {
             sendChatMessage(`We love ${username}`);
         }
     }
+
+    commands["!announce"] = {
+        type: CUSTOM,
+        allowed: BROADCASTER,
+        cooldown: 0,
+        f: async function() {
+            console.log("sending announcement");
+            sendAnnouncement("sup soggies");
+        }
+    }
 }
 
 export function executeCommand(commandName, data) {
     if (!(commandName in commands)) {
-        sendChatMessage(`fuckwit is making up commands smh`);
+        const shameNames = ["fuckwit", "lil bro", "silly goose"];
+        const selectedShame = shameNames[Math.floor(shameNames.length * Math.random())];
+        sendChatMessage(`${selectedShame} is making up commands smh`);
         return;
     }
 
@@ -218,7 +227,7 @@ export function executeCommand(commandName, data) {
 
     switch (command.type) {
         case SIMPLE:
-            sendChatMessage(simpleCommands[commandName]);
+            sendChatMessage(commands[commandName].msg);
             break;
         case CUSTOM:
             commands[commandName].f(data);

@@ -4,10 +4,7 @@
 import { accessToken } from "./auth.js";
 import { soggeeboiUserId, soggeebotUserId, soggeebotClientId, twitchEventsubUrl } from "./constants.js";
 import { warn, error, success } from "./log.js";
-import {
-    sendTwitchAPIRequest,
-    websocketSessionId
-} from "./soggeebot.js";
+import { sendTwitchAPIRequest, websocketSessionId } from "./soggeebot.js";
 
 
 async function sendSubscribeRequest(body) {

@@ -3,40 +3,16 @@
 
 import { secureToken, validateToken, attemptRefreshToken, accessToken } from "./auth.js";
 import { registerCommands, executeCommand } from "./commands.js";
-import {
-    BROADCASTER,
-    TIMEOUT_THRESHOLD,
-    TIMEOUT_RESET,
-    eventsubWSUrl,
-    soggeeboiUserId,
-    soggeebotClientId,
-    soggeebotUserId,
-    twitchChatColorUrl,
-    twitchChatUrl,
-    twitchShoutoutUrl,
-    twitchChannelInfoUrl,
-    twitchBanUserUrl
-} from "./constants.js";
-import {
-    subscribeToChannelFollow,
-    subscribeToChatMessage,
-    subscribeToChannelOnline,
-    subscribeToChannelRaid
-} from "./eventSubs.js";
+import * as constants from "./constants.js";
+import * as eventSub from "./eventSubs.js";
 import { info, log, error } from "./log.js";
+import { popPeriodicMessage, updatePeriodicMsgCounts } from "./periodic.js";
 
 export var greeted = new Set();
 export var websocketSessionId;
 
 var userMsgs = {};
 
-var timedMsgs = {
-    "follow_pls": {
-        lastSentTime: Date.now(),
-        msg: "Make sure to drop a follow if you're enjoying the stream!",
-        waitTime: 1200000
-    }
-}
 
 var forceNewAccessToken = false;
 
@@ -60,7 +36,8 @@ async function start() {
 
     setInterval(() => {
         userMsgs = {};
-    }, TIMEOUT_RESET);
+    }, constants.TIMEOUT_RESET);
+
 
     await validateToken();
     await setChatColour();
@@ -71,14 +48,14 @@ async function start() {
 function startWebSocketClient() {
     registerCommands();
 
-    let wsClient = new WebSocket(eventsubWSUrl);
+    let wsClient = new WebSocket(constants.eventsubWSUrl);
 
     wsClient.addEventListener("error", (err) => {
         error(err);
     });
 
     wsClient.addEventListener("open", () => {
-        info("WebSocket connection opened to " + eventsubWSUrl);
+        info("WebSocket connection opened to " + constants.eventsubWSUrl);
     });
 
     wsClient.addEventListener("message", (event) => {
@@ -89,10 +66,19 @@ function startWebSocketClient() {
 }
 
 function registerEventsubListeners() {
-    subscribeToChatMessage();
-    subscribeToChannelFollow();
-    subscribeToChannelOnline();
-    subscribeToChannelRaid();
+    eventSub.subscribeToChatMessage();
+    eventSub.subscribeToChannelFollow();
+    eventSub.subscribeToChannelOnline();
+    eventSub.subscribeToChannelRaid();
+}
+
+function registerPeriodicMessages() {
+    setInterval(() => {
+        const msg = popPeriodicMessage();
+        if (msg !== null) {
+            sendChatMessage(msg.msg);
+        }
+    }, constants.PERIODIC_DELAY);
 }
 
 function handleMessage(data) {
@@ -100,6 +86,7 @@ function handleMessage(data) {
         case "session_welcome":
             websocketSessionId = data.payload.session.id;
             registerEventsubListeners();
+            registerPeriodicMessages();
             break;
 
         case "notification":
@@ -107,10 +94,12 @@ function handleMessage(data) {
                 case "channel.chat.message":
                     log(`MSG <${data.payload.event.chatter_user_login}>: ${data.payload.event.message.text}`);
 
-                    sendTimedMessages();
+                    if (data.payload.event.chatter_user_id !== constants.soggeebotUserId) {
+                        updatePeriodicMsgCounts();
+                    }
 
                     userMsgs[data.payload.event.chatter_user_id] = (userMsgs[data.payload.event.chatter_user_id] ?? 0) + 1;
-                    if (userMsgs[data.payload.event.chatter_user_id] > TIMEOUT_THRESHOLD) {
+                    if (userMsgs[data.payload.event.chatter_user_id] > constants.TIMEOUT_THRESHOLD) {
                         timeoutUser(data.payload.event.chatter_user_id);
                     }
 
@@ -134,9 +123,9 @@ function handleMessage(data) {
                 case "stream.online":
                     log(`ONLINE <${data.payload.event.broadcaster_user_name}> is now live`);
                     greeted = new Set();
-                    getStreamInfo(soggeeboiUserId).then(async (streamData) => {
+                    getStreamInfo(constants.soggeeboiUserId).then(async (streamData) => {
                         setTimeout(async () => {
-                            await sendChatMessage(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
+                            await sendAnnouncement(`soggeeboi is now live! Streaming ${streamData.category}: ${streamData.title}.`);
                             sendChatMessage("Welcome to the stream, we will get to the good stuff shortly DinoDance");
                         }, 10000);
                     }).catch(error);
@@ -156,16 +145,16 @@ function handleMessage(data) {
 }
 
 export async function sendChatMessage(chatMessage) {
-    let response = await sendTwitchAPIRequest(twitchChatUrl, {
+    let response = await sendTwitchAPIRequest(constants.twitchChatUrl, {
         method: "POST",
         headers: {
             "Authorization": `Bearer ${accessToken()}`,
-            "Client-Id": soggeebotClientId,
+            "Client-Id": constants.soggeebotClientId,
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            "broadcaster_id": soggeeboiUserId,
-            "sender_id": soggeebotUserId,
+            "broadcaster_id": constants.soggeeboiUserId,
+            "sender_id": constants.soggeebotUserId,
             "message": chatMessage
         })
     });
@@ -178,6 +167,32 @@ export async function sendChatMessage(chatMessage) {
     }
 
     info("Successfully send chat message: " + chatMessage);
+}
+
+export async function sendChatReply(msgId, chatMessage) {
+    let response = await sendTwitchAPIRequest(constants.twitchChatUrl, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${accessToken()}`,
+            "Client-Id": constants.soggeebotClientId,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            "broadcaster_id": constants.soggeeboiUserId,
+            "sender_id": constants.soggeebotUserId,
+            "message": chatMessage,
+            "reply_parent_message_id": msgId
+        })
+    });
+
+    if (response.status != 200) {
+        let data = await response.json();
+        error("Failed to send chat reply");
+        error(data.message);
+        return;
+    }
+
+    info("Successfully send chat reply: " + chatMessage);
 }
 
 export async function sendTwitchAPIRequest(url, requestData) {
@@ -199,11 +214,11 @@ export async function sendTwitchAPIRequest(url, requestData) {
 }
 
 async function getStreamInfo(userId) {
-    let response = await fetch(twitchChannelInfoUrl + "?broadcaster_id=" + userId, {
+    let response = await fetch(constants.twitchChannelInfoUrl + "?broadcaster_id=" + userId, {
         method: "GET",
         headers: {
             "Authorization": `Bearer ${accessToken()}`,
-            "Client-Id": soggeebotClientId
+            "Client-Id": constants.soggeebotClientId
         }
     });
 
@@ -223,11 +238,11 @@ async function getStreamInfo(userId) {
 }
 
 export async function sendShoutout(userId) {
-    let response = await fetch(`${twitchShoutoutUrl}?from_broadcaster_id=${soggeeboiUserId}&to_broadcaster_id=${userId}&moderator_id=${soggeebotUserId}`, {
+    let response = await fetch(`${constants.twitchShoutoutUrl}?from_broadcaster_id=${constants.soggeeboiUserId}&to_broadcaster_id=${userId}&moderator_id=${constants.soggeebotUserId}`, {
         method: "POST",
         headers: {
             "Authorization": `Bearer ${accessToken()}`,
-            "Client-Id": soggeebotClientId
+            "Client-Id": constants.soggeebotClientId
         }
     });
 
@@ -239,11 +254,11 @@ export async function sendShoutout(userId) {
 }
 
 async function timeoutUser(userId) {
-    let response = await sendTwitchAPIRequest(`${twitchBanUserUrl}?broadcaster_id=${soggeeboiUserId}&moderator_id=${soggeebotUserId}`, {
+    let response = await sendTwitchAPIRequest(`${constants.twitchBanUserUrl}?broadcaster_id=${constants.soggeeboiUserId}&moderator_id=${constants.soggeebotUserId}`, {
         method: "POST",
         headers: {
             "Authorization": `Bearer ${accessToken()}`,
-            "Client-Id": soggeebotClientId,
+            "Client-Id": constants.soggeebotClientId,
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -267,7 +282,7 @@ async function timeoutUser(userId) {
 
 export function hasBadge(badges, badgeToCheck) {
     for (let badge of badges) {
-        if (badge.set_id === badgeToCheck || badge.set_id == BROADCASTER) {
+        if (badge.set_id === badgeToCheck || badge.set_id == constants.BROADCASTER) {
             return true;
         }
     }
@@ -275,15 +290,15 @@ export function hasBadge(badges, badgeToCheck) {
 }
 
 async function setChatColour() {
-    let response = await sendTwitchAPIRequest(twitchChatColorUrl, {
+    let response = await sendTwitchAPIRequest(constants.twitchChatColorUrl, {
         method: "PUT",
         body: JSON.stringify({
-            user_id: soggeebotUserId,
+            user_id: constants.soggeebotUserId,
             color: "blue_violet"
         }),
         headers: {
             "Authorization": `Bearer ${accessToken()}`,
-            "Client-Id": soggeebotClientId,
+            "Client-Id": constants.soggeebotClientId,
             "Content-Type": "application/json"
         }
     });
@@ -298,13 +313,25 @@ async function setChatColour() {
     info("Successfully updated chat colour");
 }
 
-function sendTimedMessages() {
-    const now = Date.now();
-    for (const [_, value] of Object.entries(timedMsgs)) {
-        if (value.lastSentTime + value.waitTime < now) {
-            value.lastSentTime = now;
-            sendChatMessage(value.msg);
-            break;
-        }
+export async function sendAnnouncement(announcementMsg) {
+    let response = await sendTwitchAPIRequest(`${constants.twitchAnnouncementUrl}?broadcaster_id=${constants.soggeeboiUserId}&moderator_id=${constants.soggeebotUserId}`, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${accessToken()}`,
+            "Client-Id": constants.soggeebotClientId,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            "message": announcementMsg
+        })
+    });
+
+    if (response.status != 204) {
+        let data = await response.json();
+        error("Failed to send chat message");
+        error(data.message);
+        return;
     }
+
+    info("Successfully send chat message: " + announcementMsg);
 }
