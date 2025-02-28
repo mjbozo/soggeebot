@@ -65,9 +65,9 @@ var periodicMsgs = [
         name: "followPls",
         lastSentTime: Date.now(),
         msg: "Make sure to drop a follow if you're enjoying the stream!",
-        waitTime: 1 * 60 * 1000,
-        msgRequiredCount: 4,
-        remainingMsgs: 4,
+        waitTime: 15 * 60 * 1000,
+        msgRequiredCount: 10,
+        remainingMsgs: 10,
         enqueued: false
     }
 ];
