@@ -27,4 +27,4 @@ export const SIMPLE = "simple";
 export const TIMEOUT_THRESHOLD = 10;
 export const TIMEOUT_RESET = 5000;
 export const DEFAULT_COOLDOWN = 2000;
-export const PERIODIC_DELAY = 10 * 1000;
+export const PERIODIC_DELAY = 10 * 60 * 1000;
